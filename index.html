@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ExamBro CBT - Sistem Pengunci Ujian Sekolah</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- HTML5-QRCode Library untuk Scan Barcode / QR Code Link Soal -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        slate: {
+                            850: '#151f32',
+                            900: '#0f172a',
+                            950: '#020617',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Mencegah seleksi teks dan drag gambar untuk keamanan ujian */
+        .no-select {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569; 
+        }
+
+        /* Animasi Pulse Merah untuk Peringatan */
+        @keyframes dangerPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            50% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+        }
+        .danger-pulse {
+            animation: dangerPulse 2s infinite;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col overflow-x-hidden selection:bg-indigo-500 selection:text-white">
+
+    <!-- =====================================================================
+         1. HALAMAN KONFIGURASI / LOBBY SISWA (SEBELUM UJIAN DIMULAI)
+         ===================================================================== -->
+    <div id="lobbyScreen" class="flex-1 flex flex-col items-center justify-center p-4 md:p-8 max-w-5xl mx-auto w-full">
+        
+        <!-- Header Branding -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl mb-4 text-indigo-400">
+                <i data-lucide="shield-check" class="w-10 h-10"></i>
+            </div>
+            <h1 class="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent">
+                CBT MTs. Al Hasan Maarif
+            </h1>
+            <p class="text-slate-400 mt-2 max-w-xl mx-auto text-sm md:text-base">
+                Selamat Datang di aplikasi CBT. Selamat Mengerjakan Ujian. Semoga Sukses.
+            </p>
+        </div>
+
+        <!-- Tab Navigasi: Mode Siswa vs Kode Google Apps Script -->
+        <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-800 mb-6 w-full max-w-md">
+            <button onclick="switchLobbyTab('student')" id="tabStudentBtn" class="flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all bg-indigo-600 text-white shadow-lg">
+                <i data-lucide="monitor-play" class="w-4 h-4 inline mr-1.5 -mt-0.5"></i> Portal Ujian Siswa
+            </button>
+            <button onclick="switchLobbyTab('appscript')" id="tabAppScriptBtn" class="flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all text-slate-400 hover:text-white">
+                <i data-lucide="code-2" class="w-4 h-4 inline mr-1.5 -mt-0.5"></i> Kode Apps Script
+            </button>
+        </div>
+
+        <!-- PANEL 1: PORTAL UJIAN SISWA -->
+        <div id="panelStudent" class="w-full max-w-2xl bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl">
+            <form id="examSetupForm" onsubmit="startExamSession(event)" class="space-y-5">
+                
+                <!-- Sumber Soal Khusus Scan QR / Barcode -->
+                <div id="externalUrlContainer" class="space-y-2.5">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400">Akses Soal Ujian (Wajib Scan QR / Barcode)</label>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <div class="relative flex-1">
+                            <input type="url" id="examUrlInput" readonly required placeholder="Belum ada barcode dipindai..." 
+                                class="w-full bg-slate-950/90 border border-slate-800 rounded-xl px-4 py-3 text-sm text-emerald-400 font-mono focus:outline-none cursor-not-allowed select-none">
+                            <input type="hidden" id="isQrScanned" value="false">
+                        </div>
+                        <button type="button" onclick="openQrScanner()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-5 py-3 rounded-xl text-sm transition flex items-center justify-center gap-2 shrink-0 cursor-pointer shadow-lg shadow-emerald-600/20">
+                            <i data-lucide="qr-code" class="w-4 h-4"></i>
+                            <span>Scan QR / Barcode</span>
+                        </button>
+                    </div>
+                    <p id="qrScanSuccessMsg" class="hidden text-xs text-emerald-400 font-medium flex items-center gap-1.5">
+                        <i data-lucide="check-circle-2" class="w-4 h-4 shrink-0"></i>
+                        <span>Barcode berhasil dipindai! Siap memulai ujian.</span>
+                    </p>
+                    <p id="qrRequiredWarning" class="hidden text-xs text-rose-400 font-medium flex items-center gap-1.5">
+                        <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+                        <span>Silakan lakukan Scan QR / Barcode kartu soal terlebih dahulu sebelum memulai ujian!</span>
+                    </p>
+                    <p class="text-xs text-slate-400 flex items-start gap-1.5">
+                        <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5 text-indigo-400"></i>
+                        <span>Gunakan kamera perangkat atau pilih gambar QR Code yang diberikan oleh pengawas ruang ujian.</span>
+                    </p>
+                </div>
+
+                <!-- Pengaturan Keamanan Terkunci -->
+                <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-medium text-slate-300 flex items-center gap-2">
+                            <i data-lucide="shield-alert" class="w-4 h-4 text-rose-400"></i> Batas Toleransi Pelanggaran
+                        </span>
+                        <span class="bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-lg px-3 py-1 text-xs font-bold">
+                            Maksimal 3x Pelanggaran
+                        </span>
+                    </div>
+                    <div class="flex items-center justify-between border-t border-slate-800/80 pt-3">
+                        <span class="text-sm font-medium text-slate-300 flex items-center gap-2">
+                            <i data-lucide="key-round" class="w-4 h-4 text-amber-400"></i> Otorisasi Pengawas
+                        </span>
+                        <span class="font-mono text-xs bg-slate-900 border border-slate-700 px-2.5 py-1 rounded text-slate-400 flex items-center gap-1.5">
+                            <i data-lucide="lock" class="w-3 h-3 text-amber-400"></i> Token Rahasia Aktif
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Peringatan Tata Tertib -->
+                <div class="bg-rose-950/30 border border-rose-500/30 rounded-xl p-4 text-xs text-rose-200 space-y-1.5">
+                    <p class="font-bold text-rose-400 flex items-center gap-1.5">
+                        <i data-lucide="alert-triangle" class="w-4 h-4"></i> PERINGATAN SISTEM KEAMANAN:
+                    </p>
+                    <ul class="list-disc list-inside space-y-1 text-rose-200/90">
+                        <li>Aplikasi akan otomatis masuk ke mode <b>Layar Penuh (Fullscreen)</b>.</li>
+                        <li>Dilarang berpindah tab, membuka aplikasi lain, atau menekan tombol Windows/Alt+Tab.</li>
+                        <li>Keluar dari layar penuh atau membuka Inspect Element akan tercatat sebagai pelanggaran.</li>
+                    </ul>
+                </div>
+
+                <button type="submit" class="w-full py-3.5 px-6 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2 text-base cursor-pointer">
+                    <i data-lucide="lock" class="w-5 h-5"></i>
+                    Mulai Ujian & Kunci Layar
+                </button>
+            </form>
+        </div>
+
+        <!-- PANEL 2: KODE GOOGLE APPS SCRIPT (BACKEND & WEB APP) -->
+        <div id="panelAppScript" class="hidden w-full max-w-4xl bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6">
+            <div>
+                <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i data-lucide="file-code-2" class="w-6 h-6 text-emerald-400"></i>
+                    Integrasi Google Apps Script (Backend Pencatat Pelanggaran & Host Web App)
+                </h2>
+                <p class="text-sm text-slate-400 mt-1">
+                    Salin kode berikut ke dalam proyek <b>Google Apps Script</b> Anda (<code>script.google.com</code>) untuk menghosting aplikasi ExamBro ini langsung dari server Google dan mencatat log kecurangan siswa secara otomatis ke Google Sheets.
+                </p>
+            </div>
+
+            <!-- Langkah Pemasangan -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                    <span class="text-indigo-400 font-bold block mb-1">Langkah 1: Buat Project</span>
+                    Buka Google Drive > Baru > Lainnya > Google Apps Script. Buat file <code>Code.gs</code> dan <code>Index.html</code>.
+                </div>
+                <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                    <span class="text-indigo-400 font-bold block mb-1">Langkah 2: Tempel Kode</span>
+                    Tempel kode GS di bawah ke <code>Code.gs</code>, dan seluruh kode halaman ini ke <code>Index.html</code>.
+                </div>
+                <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                    <span class="text-indigo-400 font-bold block mb-1">Langkah 3: Deploy Web App</span>
+                    Klik <b>Deploy > New Deployment > Web App</b>. Pilih akses <i>"Anyone"</i> lalu bagikan linknya ke siswa.
+                </div>
+            </div>
+
+            <!-- Code Block Code.gs -->
+            <div class="relative">
+                <div class="flex items-center justify-between bg-slate-950 px-4 py-2.5 rounded-t-xl border border-slate-800 border-b-0">
+                    <span class="text-xs font-mono font-semibold text-emerald-400">Code.gs (Google Apps Script - Support Google Sites)</span>
+                    <button onclick="copyGasCode()" id="copyGasBtn" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-lg flex items-center gap-1.5 transition">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i> Salin Kode
+                    </button>
+                </div>
+                <pre id="gasCodeBlock" class="bg-slate-950 p-4 rounded-b-xl border border-slate-800 text-xs font-mono text-slate-300 overflow-x-auto leading-relaxed">/**
+ * BACKEND GOOGLE APPS SCRIPT UNTUK CBT MTs. AL HASAN MAARIF
+ * Support Google Sites Embed (Izin Kamera & Fullscreen) + Pencatat Log Pelanggaran
+ */
+
+// 1. Fungsi utama untuk menampilkan halaman Web App ExamBro di Google Sites
+function doGet(e) {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('CBT MTs. Al Hasan Maarif')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .setSandboxMode(HtmlService.SandboxMode.IFRAME)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no');
+}
+
+// 2. Fungsi untuk mencatat aktivitas/pelanggaran siswa ke Google Sheets secara real-time
+function logViolationToSheet(data) {
+  try {
+    // OPSIONAL: Masukkan ID Google Spreadsheet jika ingin mencatat log kecurangan ke Sheets
+    const SPREADSHEET_ID = 'MASUKKAN_ID_SPREADSHEET_ANDA_DISINI'; 
+    if (SPREADSHEET_ID === 'MASUKKAN_ID_SPREADSHEET_ANDA_DISINI') {
+      return { success: true, message: 'Mode tanpa spreadsheet aktif' };
+    }
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sheet = ss.getSheetByName('Log_Keamanan_Ujian');
+    
+    // Buat sheet otomatis jika belum ada
+    if (!sheet) {
+      sheet = ss.insertSheet('Log_Keamanan_Ujian');
+      sheet.appendRow(['Waktu Kejadian', 'Perangkat / Sesi', 'Jenis Pelanggaran', 'Pelanggaran Ke-', 'Status']);
+      sheet.getRange('A1:E1').setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    }
+    
+    // Simpan baris log baru
+    sheet.appendRow([
+      new Date(),
+      data.sessionInfo || 'Peserta CBT',
+      data.reason,
+      data.count,
+      data.status
+    ]);
+    
+    return { success: true, message: 'Log tercatat di server' };
+  } catch (error) {
+    return { success: false, message: error.toString() };
+  }
+}</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- =====================================================================
+         2. RUANG UJIAN TERKUNCI (ACTIVE EXAM BROWSER LOCKDOWN)
+         ===================================================================== -->
+    <div id="examRoomScreen" class="hidden fixed inset-0 z-40 bg-slate-950 flex flex-col no-select">
+        
+        <!-- Top Security Status Bar (Tidak bisa ditutup siswa) -->
+        <header class="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex items-center justify-between shrink-0 shadow-md">
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-lg text-xs font-bold">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    LOCKDOWN AKTIF
+                </div>
+                <div class="hidden sm:block text-xs font-semibold text-slate-300">
+                    CBT MTs. Al Hasan Maarif
+                </div>
+            </div>
+
+            <!-- Indikator Pelanggaran & Timer -->
+            <div class="flex items-center gap-3">
+                <!-- Status Pelanggaran -->
+                <div id="violationBadge" class="flex items-center gap-1.5 bg-slate-800 border border-slate-700 px-3 py-1 rounded-lg text-xs font-semibold text-slate-300">
+                    <i data-lucide="shield-alert" class="w-4 h-4 text-amber-400"></i>
+                    <span>Pelanggaran: <b id="violationCounterText" class="text-white">0 / 3</b></span>
+                </div>
+
+                <!-- Timer Ujian -->
+                <div class="bg-slate-950 border border-slate-800 px-3 py-1 rounded-lg font-mono text-sm font-bold text-indigo-400 flex items-center gap-1.5">
+                    <i data-lucide="clock" class="w-4 h-4"></i>
+                    <span id="examTimer">01:30:00</span>
+                </div>
+
+                <!-- Tombol Keluar (Membutuhkan Token Pengawas) -->
+                <button onclick="openExitModal()" class="bg-rose-600/20 hover:bg-rose-600 border border-rose-500/40 text-rose-300 hover:text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer">
+                    <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+                    <span class="hidden md:inline">Selesai / Keluar</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Kontainer Konten Ujian (Hanya Iframe Hasil Scan Barcode) -->
+        <main class="flex-1 relative bg-slate-900 overflow-hidden">
+            
+            <!-- Iframe untuk Google Form / Apps Script Web App hasil Scan Barcode -->
+            <iframe id="externalExamFrame" class="w-full h-full border-0 bg-white" allow="camera; microphone; fullscreen" sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>
+
+        </main>
+    </div>
+
+    <!-- =====================================================================
+         3. OVERLAY PERINGATAN PELANGGARAN (WARNING MODAL)
+         ===================================================================== -->
+    <div id="warningOverlay" class="hidden fixed inset-0 z-50 bg-rose-950/95 backdrop-blur-lg flex items-center justify-center p-4 no-select">
+        <div class="max-w-md w-full bg-slate-900 border-2 border-rose-500 rounded-3xl p-6 md:p-8 text-center shadow-2xl danger-pulse">
+            <div class="w-16 h-16 bg-rose-500/20 text-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="siren" class="w-10 h-10"></i>
+            </div>
+            <h2 class="text-2xl font-extrabold text-white tracking-tight">PELANGGARAN TERDETEKSI!</h2>
+            <p id="warningReasonText" class="text-rose-300 font-medium text-sm mt-2">
+                Anda terdeteksi meninggalkan halaman ujian atau keluar dari mode layar penuh.
+            </p>
+            
+            <div class="my-5 bg-slate-950 border border-slate-800 rounded-xl p-4">
+                <span class="text-xs text-slate-400 uppercase tracking-wider block">Status Pelanggaran Anda</span>
+                <span id="modalViolationScore" class="text-2xl font-black text-rose-500 mt-1 block">1 / 3</span>
+                <span class="text-xs text-slate-400 mt-1 block">Jika mencapai batas maksimal, ujian akan dikunci otomatis!</span>
+            </div>
+
+            <button onclick="resumeExamFullscreen()" class="w-full py-3.5 px-6 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl shadow-lg transition flex items-center justify-center gap-2 cursor-pointer">
+                <i data-lucide="maximize" class="w-5 h-5"></i>
+                Kembali ke Layar Penuh & Lanjutkan
+            </button>
+        </div>
+    </div>
+
+    <!-- =====================================================================
+         4. OVERLAY TERKUNCI PERMANEN (LOCKED SCREEN - BUTUH TOKEN GURU)
+         ===================================================================== -->
+    <div id="lockedOverlay" class="hidden fixed inset-0 z-50 bg-slate-950 flex items-center justify-center p-4 no-select">
+        <div class="max-w-md w-full bg-slate-900 border-2 border-red-600 rounded-3xl p-6 md:p-8 text-center shadow-2xl">
+            <div class="w-20 h-20 bg-red-600/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="lock" class="w-10 h-10"></i>
+            </div>
+            <h2 class="text-2xl font-black text-red-500 uppercase tracking-wide">UJIAN DIKUNCI SISTEM</h2>
+            <p class="text-slate-300 text-sm mt-2">
+                Anda telah melampaui batas maksimal pelanggaran pindah tab/keluar layar penuh. Silakan lapor ke Pengawas Ujian untuk membuka kunci.
+            </p>
+
+            <!-- Log Ringkas -->
+            <div class="mt-4 bg-slate-950 border border-slate-800 rounded-xl p-3 text-left text-xs space-y-1 max-h-32 overflow-y-auto" id="violationLogList">
+                <!-- Diisi dinamis oleh JS -->
+            </div>
+
+            <div class="mt-6 space-y-3">
+                <input type="password" id="unlockTokenInput" placeholder="Masukkan Token Pengawas" 
+                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-center font-mono text-sm text-white focus:outline-none focus:border-red-500">
+                <p id="unlockErrorMsg" class="hidden text-xs text-red-400 font-semibold">Token pengawas salah!</p>
+                
+                <button onclick="unlockBySupervisor()" class="w-full py-3 px-6 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl transition cursor-pointer">
+                    Buka Kunci Ujian (Pengawas)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- =====================================================================
+         5. MODAL KONFIRMASI KELUAR UJIAN (BUTUH TOKEN PENGAWAS)
+         ===================================================================== -->
+    <div id="exitExamModal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="max-w-sm w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center shadow-2xl">
+            <div class="w-12 h-12 bg-indigo-500/20 text-indigo-400 rounded-xl flex items-center justify-center mx-auto mb-3">
+                <i data-lucide="key" class="w-6 h-6"></i>
+            </div>
+            <h3 class="text-lg font-bold text-white">Konfirmasi Selesai Ujian</h3>
+            <p class="text-xs text-slate-400 mt-1">
+                Masukkan Token Pengawas untuk keluar dari mode ExamBro dan mengakhiri sesi ujian.
+            </p>
+            <div class="mt-4 space-y-3">
+                <input type="password" id="exitTokenInput" placeholder="Masukkan Token Pengawas" 
+                    class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-center font-mono text-sm text-white focus:outline-none focus:border-indigo-500">
+                <p id="exitErrorMsg" class="hidden text-xs text-rose-400 font-semibold">Token tidak valid!</p>
+                
+                <div class="flex gap-2 pt-2">
+                    <button onclick="closeExitModal()" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-xs transition cursor-pointer">
+                        Batal
+                    </button>
+                    <button onclick="confirmExitExam()" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition cursor-pointer">
+                        Akhiri Ujian
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- =====================================================================
+         6. MODAL SCANNER BARCODE / QR CODE LINK UJIAN
+         ===================================================================== -->
+    <div id="qrScannerModal" class="hidden fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div class="flex items-center gap-2">
+                    <div class="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                        <i data-lucide="scan-line" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Scan QR / Barcode Ujian</h3>
+                        <p class="text-xs text-slate-400">Arahkan kamera ke kartu/layar QR Code soal</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeQrScanner()" class="text-slate-400 hover:text-white p-1.5 rounded-lg bg-slate-800/50 hover:bg-slate-800 transition cursor-pointer">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Area Kamera Scanner -->
+            <p id="qrErrorText" class="hidden text-xs text-rose-400 bg-rose-950/40 border border-rose-500/30 p-3 rounded-xl text-center leading-relaxed"></p>
+
+            <!-- Tombol Buka Tab Baru jika Kamera Terkunci di dalam Google Sites / Iframe -->
+            <div id="openNewTabContainer" class="hidden">
+                <a id="openNewTabLink" href="#" target="_top" class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl text-center transition flex items-center justify-center gap-1.5 shadow-lg">
+                    <i data-lucide="external-link" class="w-4 h-4"></i>
+                    <span>Buka Layar Penuh (Aktifkan Kamera)</span>
+                </a>
+            </div>
+
+            <!-- Alternatif Upload Gambar QR Code -->
+            <div class="pt-2 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-2">
+                <label class="w-full sm:w-auto flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl text-center cursor-pointer transition flex items-center justify-center gap-1.5">
+                    <i data-lucide="image" class="w-4 h-4 text-indigo-400"></i>
+                    <span>Pilih Gambar QR dari Galeri</span>
+                    <input type="file" id="qrFileInput" accept="image/*" onchange="scanQrFromFile(event)" class="hidden">
+                </label>
+                <button type="button" onclick="closeQrScanner()" class="w-full sm:w-auto py-2.5 px-4 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 text-xs font-semibold rounded-xl transition cursor-pointer">
+                    Tutup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Container Tersembunyi Khusus Scan File Gambar agar tidak bentrok dengan Kamera -->
+    <div id="qrFileReaderHidden" class="hidden"></div>
+
+    <!-- =====================================================================
+         JAVASCRIPT ENGINE: KEAMANAN EXAMBRO & DETEKSI KECURANGAN
+         ===================================================================== -->
+    <script>
+        // Inisialisasi ikon Lucide
+        lucide.createIcons();
+
+        // Konfigurasi & State Aplikasi (Token disembunyikan dari UI)
+        const _0xToken = atob("R1VSVTIwMjY="); 
+        let html5QrScanner = null;
+        let state = {
+            isExamActive: false,
+            isLocked: false,
+            violations: 0,
+            maxViolations: 3,
+            violationLogs: [],
+            timerSeconds: 5400, // 90 Menit
+            timerInterval: null,
+            lastViolationTime: 0
+        };
+
+        // Audio Beep Peringatan menggunakan Web Audio API (Tanpa file eksternal)
+        function playWarningBeep() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(520, audioCtx.currentTime);
+                oscillator.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.4);
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.4);
+            } catch (e) {
+                console.warn("Audio context blocked:", e);
+            }
+        }
+
+        // Navigasi Tab di Lobby
+        function switchLobbyTab(tab) {
+            const btnStudent = document.getElementById('tabStudentBtn');
+            const btnAppScript = document.getElementById('tabAppScriptBtn');
+            const panelStudent = document.getElementById('panelStudent');
+            const panelAppScript = document.getElementById('panelAppScript');
+
+            if (tab === 'student') {
+                btnStudent.className = "flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all bg-indigo-600 text-white shadow-lg";
+                btnAppScript.className = "flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all text-slate-400 hover:text-white";
+                panelStudent.classList.remove('hidden');
+                panelAppScript.classList.add('hidden');
+            } else {
+                btnAppScript.className = "flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all bg-indigo-600 text-white shadow-lg";
+                btnStudent.className = "flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all text-slate-400 hover:text-white";
+                panelAppScript.classList.remove('hidden');
+                panelStudent.classList.add('hidden');
+            }
+        }
+
+        // Salin Kode Apps Script
+        function copyGasCode() {
+            const code = document.getElementById('gasCodeBlock').innerText;
+            const textArea = document.createElement("textarea");
+            textArea.value = code;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+
+            const btn = document.getElementById('copyGasBtn');
+            btn.innerHTML = `<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i> Tersalin!`;
+            lucide.createIcons();
+            setTimeout(() => {
+                btn.innerHTML = `<i data-lucide="copy" class="w-3.5 h-3.5"></i> Salin Kode`;
+                lucide.createIcons();
+            }, 2000);
+        }
+
+        // =====================================================================
+        // FITUR SCAN BARCODE / QR CODE LINK SOAL (DIPERBAIKI & MULTI-DEVICE)
+        // =====================================================================
+        async function stopAndClearScanner() {
+            if (html5QrScanner) {
+                try {
+                    if (html5QrScanner.isScanning) {
+                        await html5QrScanner.stop();
+                    }
+                    html5QrScanner.clear();
+                } catch (e) {
+                    console.warn("Reset scanner:", e);
+                }
+                html5QrScanner = null;
+            }
+        }
+
+        async function openQrScanner() {
+            const modal = document.getElementById('qrScannerModal');
+            const errText = document.getElementById('qrErrorText');
+            const loadingText = document.getElementById('qrCameraLoading');
+            const newTabBox = document.getElementById('openNewTabContainer');
+            const newTabLink = document.getElementById('openNewTabLink');
+            
+            errText.classList.add('hidden');
+            newTabBox.classList.add('hidden');
+            loadingText.classList.remove('hidden');
+            modal.classList.remove('hidden');
+
+            await stopAndClearScanner();
+
+            // Cek apakah dijalankan di protokol aman (HTTPS / localhost)
+            if (!window.isSecureContext && location.hostname !== "localhost") {
+                loadingText.classList.add('hidden');
+                errText.innerHTML = "<b>Akses Kamera Diblokir:</b> Halaman wajib dibuka lewat <b>HTTPS</b>. Gunakan tombol <b>Pilih Gambar QR dari Galeri</b> di bawah.";
+                errText.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                html5QrScanner = new Html5Qrcode("qrReader");
+                const config = { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0 };
+
+                // Langsung panggil kamera belakang (facingMode) agar pop-up izin browser langsung muncul
+                // Menghindari blokir pada Html5Qrcode.getCameras() di dalam iframe
+                await html5QrScanner.start(
+                    { facingMode: "environment" },
+                    config,
+                    (decodedText) => {
+                        handleQrSuccess(decodedText);
+                    },
+                    () => {} // Abaikan frame kosong
+                );
+                loadingText.classList.add('hidden');
+            } catch (err) {
+                loadingText.classList.add('hidden');
+                const errStr = String(err || "");
+                
+                // Cek apakah halaman berada di dalam iframe (seperti Google Sites / Preview)
+                const isInIframe = window.self !== window.top;
+                
+                if (isInIframe) {
+                    errText.innerHTML = "<b>Kamera Dibatasi oleh Bingkai (Google Sites / Iframe).</b><br>Klik tombol biru di bawah untuk membuka halaman penuh agar kamera aktif, atau pilih foto QR dari galeri.";
+                    newTabLink.href = window.location.href;
+                    newTabBox.classList.remove('hidden');
+                } else if (errStr.includes("NotAllowedError") || errStr.includes("Permission")) {
+                    errText.innerHTML = "<b>Izin Kamera Ditolak:</b> Klik ikon <b>Gembok / Pengaturan Situs</b> di bilah alamat browser (pojok kiri atas), ubah izin <b>Kamera menjadi Izinkan (Allow)</b>, lalu muat ulang halaman.";
+                } else {
+                    errText.innerHTML = "Kamera tidak dapat diakses (" + errStr + "). Silakan gunakan tombol <b>Pilih Gambar QR dari Galeri</b> di bawah.";
+                }
+                errText.classList.remove('hidden');
+            }
+        }
+
+        async function scanQrFromFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const errText = document.getElementById('qrErrorText');
+            errText.classList.add('hidden');
+
+            await stopAndClearScanner();
+
+            try {
+                // Gunakan instance terpisah untuk pemindaian file gambar agar tidak bentrok dengan DOM video
+                const fileScanner = new Html5Qrcode("qrFileReaderHidden");
+                const decodedText = await fileScanner.scanFile(file, true);
+                fileScanner.clear();
+                handleQrSuccess(decodedText);
+            } catch (err) {
+                errText.innerText = "Barcode / QR Code tidak terbaca pada gambar tersebut. Pastikan gambar tajam dan tidak terpotong.";
+                errText.classList.remove('hidden');
+            } finally {
+                event.target.value = ""; // Reset input file agar bisa pilih ulang file yang sama
+            }
+        }
+
+        function handleQrSuccess(decodedText) {
+            let cleanUrl = decodedText.trim();
+            
+            // Otomatis tambahkan https:// jika pembuat QR menulis domain tanpa protokol (misal: forms.gle/abc)
+            if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+                if (cleanUrl.includes('.') && !cleanUrl.includes(' ')) {
+                    cleanUrl = 'https://' + cleanUrl;
+                } else {
+                    const errText = document.getElementById('qrErrorText');
+                    errText.innerText = "QR Code tidak berisi link ujian yang valid.";
+                    errText.classList.remove('hidden');
+                    return;
+                }
+            }
+
+            const urlInput = document.getElementById('examUrlInput');
+            const isScannedFlag = document.getElementById('isQrScanned');
+            const successMsg = document.getElementById('qrScanSuccessMsg');
+            const warningMsg = document.getElementById('qrRequiredWarning');
+            
+            urlInput.value = cleanUrl;
+            isScannedFlag.value = "true";
+            successMsg.classList.remove('hidden');
+            warningMsg.classList.add('hidden');
+            playWarningBeep(); // Bunyi bip tanda scan berhasil
+            closeQrScanner();
+        }
+
+        async function closeQrScanner() {
+            const modal = document.getElementById('qrScannerModal');
+            modal.classList.add('hidden');
+            await stopAndClearScanner();
+        }
+
+        // Meminta Browser Masuk Mode Layar Penuh (Fullscreen)
+        async function enterFullscreen() {
+            const elem = document.documentElement;
+            try {
+                if (elem.requestFullscreen) {
+                    await elem.requestFullscreen();
+                } else if (elem.webkitRequestFullscreen) {
+                    await elem.webkitRequestFullscreen();
+                } else if (elem.msRequestFullscreen) {
+                    await elem.msRequestFullscreen();
+                }
+            } catch (err) {
+                console.warn("Fullscreen ditolak browser:", err);
+            }
+        }
+
+        // Memulai Sesi Ujian
+        async function startExamSession(event) {
+            event.preventDefault();
+
+            const isScanned = document.getElementById('isQrScanned').value === "true";
+            let rawUrl = document.getElementById('examUrlInput').value.trim();
+
+            if (!isScanned || !rawUrl) {
+                document.getElementById('qrRequiredWarning').classList.remove('hidden');
+                openQrScanner();
+                return;
+            }
+
+            state.maxViolations = 3; // Dikunci maksimal 3 kali pelanggaran
+            state.violations = 0;
+            state.violationLogs = [];
+            state.isLocked = false;
+            state.isExamActive = true;
+
+            updateViolationUI();
+
+            // Muat Konten Ujian dari Hasil Scan QR/Barcode
+            const iframe = document.getElementById('externalExamFrame');
+            if (rawUrl.includes('docs.google.com/forms') && !rawUrl.includes('embedded=true')) {
+                rawUrl += (rawUrl.includes('?') ? '&' : '?') + 'embedded=true';
+            }
+            iframe.src = rawUrl;
+
+            // Aktifkan Fullscreen
+            await enterFullscreen();
+
+            // Pindah Tampilan ke Ruang Ujian
+            document.getElementById('lobbyScreen').classList.add('hidden');
+            document.getElementById('examRoomScreen').classList.remove('hidden');
+
+            // Mulai Timer Hitung Mundur
+            startExamTimer();
+        }
+
+        // Timer Ujian
+        function startExamTimer() {
+            clearInterval(state.timerInterval);
+            state.timerSeconds = 5400; // 90 menit
+            state.timerInterval = setInterval(() => {
+                if (!state.isExamActive) return;
+                state.timerSeconds--;
+                if (state.timerSeconds <= 0) {
+                    clearInterval(state.timerInterval);
+                    triggerLockdown("Waktu ujian telah habis.");
+                    return;
+                }
+                const hrs = String(Math.floor(state.timerSeconds / 3600)).padStart(2, '0');
+                const mins = String(Math.floor((state.timerSeconds % 3600) / 60)).padStart(2, '0');
+                const secs = String(state.timerSeconds % 60).padStart(2, '0');
+                document.getElementById('examTimer').innerText = `${hrs}:${mins}:${secs}`;
+            }, 1000);
+        }
+
+        // =====================================================================
+        // INTI KEAMANAN: PENDETEKSI PINDAH TAB, BLUR, FULLSCREEN & SHORTCUT
+        // =====================================================================
+
+        // 1. Deteksi Pindah Tab atau Minimize Browser (Page Visibility API)
+        document.addEventListener("visibilitychange", () => {
+            if (state.isExamActive && !state.isLocked && document.hidden) {
+                recordViolation("Siswa berpindah tab atau meminimalkan browser.");
+            }
+        });
+
+        // 2. Deteksi Kehilangan Fokus Jendela (Alt+Tab, Klik aplikasi lain, Split Screen)
+        window.addEventListener("blur", () => {
+            // Abaikan jika fokus pindah ke iframe soal ujian itu sendiri
+            setTimeout(() => {
+                if (state.isExamActive && !state.isLocked && document.activeElement.tagName !== "IFRAME") {
+                    recordViolation("Jendela ujian kehilangan fokus (Terindikasi membuka aplikasi lain / Alt+Tab).");
+                }
+            }, 150);
+        });
+
+        // 3. Deteksi Keluar dari Mode Layar Penuh (Menekan ESC atau swipe keluar)
+        document.addEventListener("fullscreenchange", () => {
+            if (state.isExamActive && !state.isLocked && !document.fullscreenElement) {
+                recordViolation("Siswa keluar dari mode Layar Penuh (Fullscreen).");
+            }
+        });
+
+        // 4. Blokir Klik Kanan (Context Menu)
+        document.addEventListener("contextmenu", (e) => {
+            if (state.isExamActive) {
+                e.preventDefault();
+            }
+        });
+
+        // 5. Blokir Tombol Pintas Curang (Ctrl+C, Ctrl+V, F12, Ctrl+Shift+I, Alt+Tab, ESC)
+        document.addEventListener("keydown", (e) => {
+            if (!state.isExamActive) return;
+
+            // Blokir F12, Ctrl+Shift+I/J/C (DevTools), Ctrl+U (View Source), Ctrl+C/V/P/S
+            if (
+                e.key === "F12" ||
+                (e.ctrlKey && e.shiftKey && ["I", "J", "C", "i", "j", "c"].includes(e.key)) ||
+                (e.ctrlKey && ["u", "U", "c", "C", "v", "V", "p", "P", "s", "S", "t", "T", "w", "W", "n", "N"].includes(e.key)) ||
+                (e.altKey && e.key === "Tab")
+            ) {
+                e.preventDefault();
+                recordViolation(`Mencoba menekan tombol terlarang (${e.key}).`);
+            }
+        });
+
+        // 6. Peringatan Jika Mencoba Menutup atau Refresh Halaman
+        window.addEventListener("beforeunload", (e) => {
+            if (state.isExamActive) {
+                e.preventDefault();
+                e.returnValue = "Ujian sedang berlangsung! Meninggalkan halaman akan dianggap pelanggaran.";
+            }
+        });
+
+        // Fungsi Pencatat Pelanggaran (Dengan Debounce 1.5 detik agar tidak double-count)
+        function recordViolation(reason) {
+            const now = Date.now();
+            if (now - state.lastViolationTime < 1500) return;
+            state.lastViolationTime = now;
+
+            state.violations++;
+            const timestamp = new Date().toLocaleTimeString('id-ID');
+            state.violationLogs.push(`[${timestamp}] ${reason}`);
+
+            playWarningBeep();
+            updateViolationUI();
+
+            // Kirim log ke Google Apps Script jika dijalankan di dalam lingkungan GAS
+            if (typeof google !== 'undefined' && google.script && google.script.run) {
+                google.script.run.logViolationToSheet({
+                    sessionInfo: navigator.userAgent.slice(0, 60),
+                    reason: reason,
+                    count: state.violations,
+                    status: state.violations >= state.maxViolations ? 'TERKUNCI' : 'PERINGATAN'
+                });
+            }
+
+            // Cek apakah sudah mencapai batas pelanggaran
+            if (state.violations >= state.maxViolations) {
+                triggerLockdown(reason);
+            } else {
+                // Tampilkan Overlay Peringatan
+                document.getElementById('warningReasonText').innerText = reason;
+                document.getElementById('modalViolationScore').innerText = `${state.violations} / ${state.maxViolations}`;
+                document.getElementById('warningOverlay').classList.remove('hidden');
+            }
+        }
+
+        function updateViolationUI() {
+            const badge = document.getElementById('violationBadge');
+            const counterText = document.getElementById('violationCounterText');
+            counterText.innerText = `${state.violations} / ${state.maxViolations}`;
+
+            if (state.violations > 0) {
+                badge.className = "flex items-center gap-1.5 bg-rose-950/80 border border-rose-500/50 px-3 py-1 rounded-lg text-xs font-semibold text-rose-200";
+            }
+        }
+
+        // Lanjutkan Ujian Setelah Peringatan
+        async function resumeExamFullscreen() {
+            document.getElementById('warningOverlay').classList.add('hidden');
+            await enterFullscreen();
+        }
+
+        // Kunci Ujian Permanen (Butuh Token Pengawas)
+        function triggerLockdown(lastReason) {
+            state.isLocked = true;
+            document.getElementById('warningOverlay').classList.add('hidden');
+            document.getElementById('lockedOverlay').classList.remove('hidden');
+
+            // Render riwayat pelanggaran
+            const logContainer = document.getElementById('violationLogList');
+            logContainer.innerHTML = state.violationLogs
+                .map(log => `<div class="text-rose-300 border-b border-slate-800/80 pb-1">${log}</div>`)
+                .join('');
+        }
+
+        // Buka Kunci oleh Pengawas
+        async function unlockBySupervisor() {
+            const input = document.getElementById('unlockTokenInput').value.trim();
+            const errMsg = document.getElementById('unlockErrorMsg');
+
+            if (input === _0xToken) {
+                errMsg.classList.add('hidden');
+                document.getElementById('unlockTokenInput').value = "";
+                state.isLocked = false;
+                state.violations = 0; // Reset pelanggaran setelah dibuka pengawas
+                updateViolationUI();
+                document.getElementById('lockedOverlay').classList.add('hidden');
+                await enterFullscreen();
+            } else {
+                errMsg.classList.remove('hidden');
+            }
+        }
+
+        // Modal Keluar Ujian
+        function openExitModal() {
+            document.getElementById('exitErrorMsg').classList.add('hidden');
+            document.getElementById('exitTokenInput').value = "";
+            document.getElementById('exitExamModal').classList.remove('hidden');
+        }
+
+        function closeExitModal() {
+            document.getElementById('exitExamModal').classList.add('hidden');
+        }
+
+        function confirmExitExam() {
+            const input = document.getElementById('exitTokenInput').value.trim();
+            if (input === _0xToken) {
+                state.isExamActive = false;
+                state.isLocked = false;
+                clearInterval(state.timerInterval);
+
+                // Keluar dari fullscreen
+                if (document.fullscreenElement && document.exitFullscreen) {
+                    document.exitFullscreen().catch(() => {});
+                }
+
+                document.getElementById('exitExamModal').classList.add('hidden');
+                document.getElementById('examRoomScreen').classList.add('hidden');
+                document.getElementById('lobbyScreen').classList.remove('hidden');
+                document.getElementById('externalExamFrame').src = "";
+            } else {
+                document.getElementById('exitErrorMsg').classList.remove('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
